@@ -21,29 +21,40 @@ Assets follow a standardized naming pattern:
 | `arch`    | `x86_64`, `aarch64`                         |
 | `ext`     | `.tar.gz` (Linux/macOS), `.zip` (Windows)   |
 
-### Example Assets
+### Current Assets
 
-```
-ffmpeg-linux-x86_64.tar.gz
-ffmpeg-windows-x86_64.zip
-mp4decrypt-macos-aarch64.zip
-nm3u8dlre-linux-x86_64.tar.gz
-mp4box-linux-aarch64.tar.gz
-mp4box-windows-x86_64.zip
-```
+| Tool | Linux x86_64 | Linux aarch64 | Windows x86_64 | macOS x86_64 | macOS aarch64 |
+|------|:---:|:---:|:---:|:---:|:---:|
+| MP4Box | Yes | Yes | Yes | Yes | Yes |
+| FFmpeg | Yes | Yes | Yes | Yes | - |
+| mp4decrypt | Yes | - | Yes | Yes (universal) | Yes (universal) |
+| N_m3u8DL-RE | Yes | Yes | Yes | - | - |
+
+## Automated Builds
+
+A GitHub Actions workflow (`.github/workflows/build-tools.yml`) automates the download, packaging, and upload of all tool binaries:
+
+- **Weekly schedule** — runs every Sunday at 04:00 UTC to pick up upstream updates
+- **Manual dispatch** — trigger via GitHub UI or CLI with optional per-tool filter:
+  ```bash
+  gh workflow run "Build Tools" --repo MWBMPartners/meedyadl-tools -f tool=all
+  gh workflow run "Build Tools" --repo MWBMPartners/meedyadl-tools -f tool=mp4box
+  ```
+
+### Build Sources
+
+| Tool | Source |
+|------|--------|
+| MP4Box | `apt install gpac` (Linux), Homebrew (macOS), GPAC NSIS installer (Windows) |
+| FFmpeg | johnvansickle.com static builds (Linux), BtbN/FFmpeg-Builds (Windows), evermeet.cx (macOS) |
+| mp4decrypt | nicoboss/bento4-binaries GitHub Releases |
+| N_m3u8DL-RE | nilaoda/N_m3u8DL-RE GitHub Releases |
 
 ## Release Tag
 
-MeedyaDL's `tool-versions.toml` references the `latest` release tag. All mirror assets should be uploaded to this release.
-
-## Adding Assets
-
-1. Build or obtain the tool binary for the target platform
-2. Package it in a `.tar.gz` (Unix) or `.zip` (Windows) archive
-3. Name it following the convention above
-4. Upload to the `latest` GitHub Release
+MeedyaDL's `tool-versions.toml` references the `latest` release tag. All mirror assets are uploaded to this release.
 
 ## Related
 
-- [MeedyaDL](https://github.com/MWBMPartners/MeedyaDL) - The main application
+- [MeedyaDL](https://github.com/MWBMPartners/MeedyaDL) — The main application
 - `tool-versions.toml` in MeedyaDL defines the mirror configuration
