@@ -108,43 +108,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "$RELEASE_TAG" mp4box-windows-x86_64.zip --clobber --repo "$GITHUB_REPOSITORY"
 
-  mp4box-macos-x86_64:
-    if: ${{ github.event.inputs.tool == 'all' || github.event.inputs.tool == 'mp4box' || github.event_name == 'schedule' }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download GPAC macOS .pkg and extract MP4Box
-        run: |
-          # GPAC publishes x86_64 macOS .pkg nightlies (runs on ARM64 via Rosetta 2)
-          curl -L -o gpac.pkg \
-            "https://download.tsi.telecom-paristech.fr/gpac/new_builds/gpac_latest_head_macos.pkg"
-          # .pkg files contain a Payload which is a cpio archive
-          mkdir -p pkg_extracted
-          # Use 7z to extract the .pkg, then the Payload
-          sudo apt-get update && sudo apt-get install -y p7zip-full cpio
-          7z x gpac.pkg -opkg_contents || true
-          # Find and extract the Payload (may be nested inside PackageInfo dirs)
-          PAYLOAD=$(find pkg_contents -name "Payload" | head -1)
-          if [ -n "$PAYLOAD" ]; then
-            cd pkg_extracted && cpio -idm < "../$PAYLOAD" 2>/dev/null || cat "../$PAYLOAD" | gunzip | cpio -idm 2>/dev/null || true && cd ..
-          fi
-          MP4BOX=$(find pkg_extracted -name "MP4Box" -type f | head -1)
-          if [ -z "$MP4BOX" ]; then
-            echo "ERROR: MP4Box not found in .pkg"
-            exit 1
-          fi
-          mkdir -p mp4box-macos-x86_64
-          cp "$MP4BOX" mp4box-macos-x86_64/
-          # Also copy libs if present alongside
-          LIB_DIR=$(dirname "$MP4BOX")/../lib
-          if [ -d "$LIB_DIR" ]; then
-            cp -R "$LIB_DIR" mp4box-macos-x86_64/
-          fi
-          tar czf mp4box-macos-x86_64.tar.gz mp4box-macos-x86_64/
-
-      - name: Upload to release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "$RELEASE_TAG" mp4box-macos-x86_64.tar.gz --clobber --repo "$GITHUB_REPOSITORY"
+  # mp4box-macos-x86_64: Not built here. MeedyaDL uses Homebrew (primary)
+  # or the GPAC .pkg (fallback) for macOS x86_64. The aarch64 Homebrew build
+  # below covers Apple Silicon natively, and Rosetta 2 handles x86_64.
 
   mp4box-macos-aarch64:
     if: ${{ github.event.inputs.tool == 'all' || github.event.inputs.tool == 'mp4box' || github.event_name == 'schedule' }}
