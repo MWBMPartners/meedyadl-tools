@@ -1,0 +1,351 @@
+# MeedyaDL Tools Mirror — Build & Package Workflow
+#
+# Builds/downloads pre-built tool binaries for all supported platforms and
+# uploads them to the "latest" GitHub Release using the standardized naming
+# convention: {tool_id}-{os}-{arch}.{ext}
+#
+# Triggers:
+#   - Manual dispatch (workflow_dispatch) with optional tool filter
+#   - Weekly schedule (keeps binaries fresh with upstream releases)
+#
+# Tools packaged:
+#   - MP4Box (GPAC) — Linux x86_64, Linux aarch64, Windows x86_64, macOS x86_64
+#   - FFmpeg — Linux x86_64, Linux aarch64, Windows x86_64, macOS x86_64
+#   - mp4decrypt (Bento4) — Linux x86_64, Windows x86_64, macOS universal
+#   - N_m3u8DL-RE — Linux x86_64, Linux aarch64, Windows x86_64, macOS x86_64/arm64
+
+name: Build Tools
+
+on:
+  workflow_dispatch:
+    inputs:
+      tool:
+        description: "Tool to build (leave empty for all)"
+        required: false
+        type: choice
+        options:
+          - all
+          - mp4box
+          - ffmpeg
+          - mp4decrypt
+          - nm3u8dlre
+  schedule:
+    # Weekly on Sunday at 04:00 UTC — keeps mirror binaries reasonably fresh
+    - cron: "0 4 * * 0"
+
+permissions:
+  contents: write
+
+env:
+  # The GitHub Release tag that MeedyaDL's tool-versions.toml references
+  RELEASE_TAG: latest
+
+jobs:
+  # ─── MP4Box (GPAC) ───────────────────────────────────────────────────
+  mp4box-linux-x86_64:
+    if: ${{ github.event.inputs.tool == 'all' || github.event.inputs.tool == 'mp4box' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install GPAC from apt
+        run: sudo apt-get update && sudo apt-get install -y gpac
+
+      - name: Package MP4Box binary
+        run: |
+          MP4BOX_PATH=$(which MP4Box || which mp4box)
+          mkdir -p mp4box-linux-x86_64
+          cp "$MP4BOX_PATH" mp4box-linux-x86_64/MP4Box
+          chmod +x mp4box-linux-x86_64/MP4Box
+          tar czf mp4box-linux-x86_64.tar.gz mp4box-linux-x86_64/
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$RELEASE_TAG" mp4box-linux-x86_64.tar.gz --clobber --repo "$GITHUB_REPOSITORY"
+
+  mp4box-linux-aarch64:
+    if: ${{ github.event.inputs.tool == 'all' || github.event.inputs.tool == 'mp4box' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Install GPAC from apt
+        run: sudo apt-get update && sudo apt-get install -y gpac
+
+      - name: Package MP4Box binary
+        run: |
+          MP4BOX_PATH=$(which MP4Box || which mp4box)
+          mkdir -p mp4box-linux-aarch64
+          cp "$MP4BOX_PATH" mp4box-linux-aarch64/MP4Box
+          chmod +x mp4box-linux-aarch64/MP4Box
+          tar czf mp4box-linux-aarch64.tar.gz mp4box-linux-aarch64/
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$RELEASE_TAG" mp4box-linux-aarch64.tar.gz --clobber --repo "$GITHUB_REPOSITORY"
+
+  mp4box-windows-x86_64:
+    if: ${{ github.event.inputs.tool == 'all' || github.event.inputs.tool == 'mp4box' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download GPAC Windows installer and extract MP4Box
+        run: |
+          curl -L -o gpac_installer.exe \
+            "https://download.tsi.telecom-paristech.fr/gpac/new_builds/gpac_latest_head_win64.exe"
+          # NSIS installers are 7z-compatible archives
+          sudo apt-get update && sudo apt-get install -y p7zip-full
+          7z x gpac_installer.exe -ogpac_extracted || true
+          # Find MP4Box.exe in the extracted tree
+          MP4BOX=$(find gpac_extracted -iname "MP4Box.exe" | head -1)
+          if [ -z "$MP4BOX" ]; then
+            echo "ERROR: MP4Box.exe not found in GPAC installer"
+            exit 1
+          fi
+          mkdir -p mp4box-windows-x86_64
+          cp "$MP4BOX" mp4box-windows-x86_64/MP4Box.exe
+          zip -j mp4box-windows-x86_64.zip mp4box-windows-x86_64/MP4Box.exe
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$RELEASE_TAG" mp4box-windows-x86_64.zip --clobber --repo "$GITHUB_REPOSITORY"
+
+  mp4box-macos-x86_64:
+    if: ${{ github.event.inputs.tool == 'all' || github.event.inputs.tool == 'mp4box' || github.event_name == 'schedule' }}
+    runs-on: macos-13
+    steps:
+      - name: Install GPAC via Homebrew
+        run: brew install gpac
+
+      - name: Package MP4Box binary and libs
+        run: |
+          GPAC_PREFIX=$(brew --prefix gpac)
+          mkdir -p mp4box-macos-x86_64
+          cp "$GPAC_PREFIX/bin/MP4Box" mp4box-macos-x86_64/ || cp "$GPAC_PREFIX/bin/mp4box" mp4box-macos-x86_64/MP4Box
+          # Include dynamic libraries MP4Box depends on
+          if [ -d "$GPAC_PREFIX/lib" ]; then
+            cp -R "$GPAC_PREFIX/lib" mp4box-macos-x86_64/
+          fi
+          chmod +x mp4box-macos-x86_64/MP4Box
+          tar czf mp4box-macos-x86_64.tar.gz mp4box-macos-x86_64/
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$RELEASE_TAG" mp4box-macos-x86_64.tar.gz --clobber --repo "$GITHUB_REPOSITORY"
+
+  mp4box-macos-aarch64:
+    if: ${{ github.event.inputs.tool == 'all' || github.event.inputs.tool == 'mp4box' || github.event_name == 'schedule' }}
+    runs-on: macos-latest
+    steps:
+      - name: Install GPAC via Homebrew
+        run: brew install gpac
+
+      - name: Package MP4Box binary and libs
+        run: |
+          GPAC_PREFIX=$(brew --prefix gpac)
+          mkdir -p mp4box-macos-aarch64
+          cp "$GPAC_PREFIX/bin/MP4Box" mp4box-macos-aarch64/ || cp "$GPAC_PREFIX/bin/mp4box" mp4box-macos-aarch64/MP4Box
+          if [ -d "$GPAC_PREFIX/lib" ]; then
+            cp -R "$GPAC_PREFIX/lib" mp4box-macos-aarch64/
+          fi
+          chmod +x mp4box-macos-aarch64/MP4Box
+          tar czf mp4box-macos-aarch64.tar.gz mp4box-macos-aarch64/
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$RELEASE_TAG" mp4box-macos-aarch64.tar.gz --clobber --repo "$GITHUB_REPOSITORY"
+
+  # ─── FFmpeg ───────────────────────────────────────────────────────────
+  ffmpeg-linux-x86_64:
+    if: ${{ github.event.inputs.tool == 'all' || github.event.inputs.tool == 'ffmpeg' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download FFmpeg static build
+        run: |
+          curl -L -o ffmpeg.tar.xz \
+            "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
+          tar xf ffmpeg.tar.xz
+          mkdir -p ffmpeg-linux-x86_64
+          cp ffmpeg-*-amd64-static/ffmpeg ffmpeg-linux-x86_64/
+          chmod +x ffmpeg-linux-x86_64/ffmpeg
+          tar czf ffmpeg-linux-x86_64.tar.gz ffmpeg-linux-x86_64/
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$RELEASE_TAG" ffmpeg-linux-x86_64.tar.gz --clobber --repo "$GITHUB_REPOSITORY"
+
+  ffmpeg-linux-aarch64:
+    if: ${{ github.event.inputs.tool == 'all' || github.event.inputs.tool == 'ffmpeg' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download FFmpeg static build (arm64)
+        run: |
+          curl -L -o ffmpeg.tar.xz \
+            "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-arm64-static.tar.xz"
+          tar xf ffmpeg.tar.xz
+          mkdir -p ffmpeg-linux-aarch64
+          cp ffmpeg-*-arm64-static/ffmpeg ffmpeg-linux-aarch64/
+          chmod +x ffmpeg-linux-aarch64/ffmpeg
+          tar czf ffmpeg-linux-aarch64.tar.gz ffmpeg-linux-aarch64/
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$RELEASE_TAG" ffmpeg-linux-aarch64.tar.gz --clobber --repo "$GITHUB_REPOSITORY"
+
+  ffmpeg-windows-x86_64:
+    if: ${{ github.event.inputs.tool == 'all' || github.event.inputs.tool == 'ffmpeg' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download FFmpeg Windows build
+        run: |
+          # BtbN provides automated FFmpeg builds for Windows
+          RELEASE=$(curl -s https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest)
+          URL=$(echo "$RELEASE" | grep -oP '"browser_download_url": "\K[^"]*ffmpeg-master-latest-win64-gpl\.zip')
+          curl -L -o ffmpeg-win.zip "$URL"
+          unzip ffmpeg-win.zip
+          mkdir -p ffmpeg-windows-x86_64
+          cp ffmpeg-master-latest-win64-gpl/bin/ffmpeg.exe ffmpeg-windows-x86_64/
+          zip -j ffmpeg-windows-x86_64.zip ffmpeg-windows-x86_64/ffmpeg.exe
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$RELEASE_TAG" ffmpeg-windows-x86_64.zip --clobber --repo "$GITHUB_REPOSITORY"
+
+  ffmpeg-macos-x86_64:
+    if: ${{ github.event.inputs.tool == 'all' || github.event.inputs.tool == 'ffmpeg' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download FFmpeg macOS build
+        run: |
+          curl -L -o ffmpeg.zip "https://evermeet.cx/ffmpeg/getrelease/zip"
+          mkdir -p ffmpeg-macos-x86_64
+          unzip ffmpeg.zip -d ffmpeg-macos-x86_64/
+          tar czf ffmpeg-macos-x86_64.tar.gz ffmpeg-macos-x86_64/
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$RELEASE_TAG" ffmpeg-macos-x86_64.tar.gz --clobber --repo "$GITHUB_REPOSITORY"
+
+  # ─── mp4decrypt (Bento4) ─────────────────────────────────────────────
+  mp4decrypt-linux-x86_64:
+    if: ${{ github.event.inputs.tool == 'all' || github.event.inputs.tool == 'mp4decrypt' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Bento4 Linux x86_64
+        run: |
+          RELEASE=$(curl -s https://api.github.com/repos/nicoboss/bento4-binaries/releases/latest)
+          URL=$(echo "$RELEASE" | grep -oP '"browser_download_url": "\K[^"]*x86_64-unknown-linux[^"]*')
+          curl -L -o bento4.zip "$URL"
+          unzip bento4.zip -d bento4/
+          mkdir -p mp4decrypt-linux-x86_64
+          find bento4/ -name "mp4decrypt" -type f -exec cp {} mp4decrypt-linux-x86_64/ \;
+          chmod +x mp4decrypt-linux-x86_64/mp4decrypt
+          tar czf mp4decrypt-linux-x86_64.tar.gz mp4decrypt-linux-x86_64/
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$RELEASE_TAG" mp4decrypt-linux-x86_64.tar.gz --clobber --repo "$GITHUB_REPOSITORY"
+
+  mp4decrypt-windows-x86_64:
+    if: ${{ github.event.inputs.tool == 'all' || github.event.inputs.tool == 'mp4decrypt' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Bento4 Windows x86_64
+        run: |
+          RELEASE=$(curl -s https://api.github.com/repos/nicoboss/bento4-binaries/releases/latest)
+          URL=$(echo "$RELEASE" | grep -oP '"browser_download_url": "\K[^"]*x86_64-microsoft-win32[^"]*')
+          curl -L -o bento4.zip "$URL"
+          unzip bento4.zip -d bento4/
+          mkdir -p mp4decrypt-windows-x86_64
+          find bento4/ -name "mp4decrypt.exe" -type f -exec cp {} mp4decrypt-windows-x86_64/ \;
+          zip -j mp4decrypt-windows-x86_64.zip mp4decrypt-windows-x86_64/mp4decrypt.exe
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$RELEASE_TAG" mp4decrypt-windows-x86_64.zip --clobber --repo "$GITHUB_REPOSITORY"
+
+  mp4decrypt-macos-aarch64:
+    if: ${{ github.event.inputs.tool == 'all' || github.event.inputs.tool == 'mp4decrypt' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Bento4 macOS universal
+        run: |
+          RELEASE=$(curl -s https://api.github.com/repos/nicoboss/bento4-binaries/releases/latest)
+          URL=$(echo "$RELEASE" | grep -oP '"browser_download_url": "\K[^"]*universal-apple-macosx[^"]*')
+          curl -L -o bento4.zip "$URL"
+          unzip bento4.zip -d bento4/
+          mkdir -p mp4decrypt-macos-aarch64
+          find bento4/ -name "mp4decrypt" -type f -exec cp {} mp4decrypt-macos-aarch64/ \;
+          tar czf mp4decrypt-macos-aarch64.tar.gz mp4decrypt-macos-aarch64/
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$RELEASE_TAG" mp4decrypt-macos-aarch64.tar.gz --clobber --repo "$GITHUB_REPOSITORY"
+
+  # ─── N_m3u8DL-RE ─────────────────────────────────────────────────────
+  nm3u8dlre-linux-x86_64:
+    if: ${{ github.event.inputs.tool == 'all' || github.event.inputs.tool == 'nm3u8dlre' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download N_m3u8DL-RE Linux x64
+        run: |
+          RELEASE=$(curl -s https://api.github.com/repos/nilaoda/N_m3u8DL-RE/releases/latest)
+          URL=$(echo "$RELEASE" | grep -oP '"browser_download_url": "\K[^"]*linux-x64[^"]*')
+          curl -L -o nm3u8dlre.tar.gz "$URL"
+          mkdir -p nm3u8dlre-linux-x86_64
+          tar xf nm3u8dlre.tar.gz -C nm3u8dlre-linux-x86_64/ || unzip nm3u8dlre.tar.gz -d nm3u8dlre-linux-x86_64/ || true
+          # Flatten: move binary to top level if nested
+          find nm3u8dlre-linux-x86_64/ -name "N_m3u8DL-RE" -type f -exec mv {} nm3u8dlre-linux-x86_64/ \; 2>/dev/null || true
+          chmod +x nm3u8dlre-linux-x86_64/N_m3u8DL-RE
+          tar czf nm3u8dlre-linux-x86_64.tar.gz nm3u8dlre-linux-x86_64/
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$RELEASE_TAG" nm3u8dlre-linux-x86_64.tar.gz --clobber --repo "$GITHUB_REPOSITORY"
+
+  nm3u8dlre-linux-aarch64:
+    if: ${{ github.event.inputs.tool == 'all' || github.event.inputs.tool == 'nm3u8dlre' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download N_m3u8DL-RE Linux arm64
+        run: |
+          RELEASE=$(curl -s https://api.github.com/repos/nilaoda/N_m3u8DL-RE/releases/latest)
+          URL=$(echo "$RELEASE" | grep -oP '"browser_download_url": "\K[^"]*linux-arm64[^"]*')
+          curl -L -o nm3u8dlre.tar.gz "$URL"
+          mkdir -p nm3u8dlre-linux-aarch64
+          tar xf nm3u8dlre.tar.gz -C nm3u8dlre-linux-aarch64/ || unzip nm3u8dlre.tar.gz -d nm3u8dlre-linux-aarch64/ || true
+          find nm3u8dlre-linux-aarch64/ -name "N_m3u8DL-RE" -type f -exec mv {} nm3u8dlre-linux-aarch64/ \; 2>/dev/null || true
+          chmod +x nm3u8dlre-linux-aarch64/N_m3u8DL-RE
+          tar czf nm3u8dlre-linux-aarch64.tar.gz nm3u8dlre-linux-aarch64/
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$RELEASE_TAG" nm3u8dlre-linux-aarch64.tar.gz --clobber --repo "$GITHUB_REPOSITORY"
+
+  nm3u8dlre-windows-x86_64:
+    if: ${{ github.event.inputs.tool == 'all' || github.event.inputs.tool == 'nm3u8dlre' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download N_m3u8DL-RE Windows x64
+        run: |
+          RELEASE=$(curl -s https://api.github.com/repos/nilaoda/N_m3u8DL-RE/releases/latest)
+          URL=$(echo "$RELEASE" | grep -oP '"browser_download_url": "\K[^"]*win-x64[^"]*')
+          curl -L -o nm3u8dlre.zip "$URL"
+          mkdir -p nm3u8dlre-windows-x86_64
+          unzip nm3u8dlre.zip -d nm3u8dlre-windows-x86_64/ || true
+          find nm3u8dlre-windows-x86_64/ -name "N_m3u8DL-RE.exe" -type f -exec mv {} nm3u8dlre-windows-x86_64/ \; 2>/dev/null || true
+          zip -j nm3u8dlre-windows-x86_64.zip nm3u8dlre-windows-x86_64/N_m3u8DL-RE.exe
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$RELEASE_TAG" nm3u8dlre-windows-x86_64.zip --clobber --repo "$GITHUB_REPOSITORY"
