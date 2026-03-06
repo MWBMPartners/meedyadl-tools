@@ -110,21 +110,35 @@ jobs:
 
   mp4box-macos-x86_64:
     if: ${{ github.event.inputs.tool == 'all' || github.event.inputs.tool == 'mp4box' || github.event_name == 'schedule' }}
-    runs-on: macos-13
+    runs-on: ubuntu-latest
     steps:
-      - name: Install GPAC via Homebrew
-        run: brew install gpac
-
-      - name: Package MP4Box binary and libs
+      - name: Download GPAC macOS .pkg and extract MP4Box
         run: |
-          GPAC_PREFIX=$(brew --prefix gpac)
-          mkdir -p mp4box-macos-x86_64
-          cp "$GPAC_PREFIX/bin/MP4Box" mp4box-macos-x86_64/ || cp "$GPAC_PREFIX/bin/mp4box" mp4box-macos-x86_64/MP4Box
-          # Include dynamic libraries MP4Box depends on
-          if [ -d "$GPAC_PREFIX/lib" ]; then
-            cp -R "$GPAC_PREFIX/lib" mp4box-macos-x86_64/
+          # GPAC publishes x86_64 macOS .pkg nightlies (runs on ARM64 via Rosetta 2)
+          curl -L -o gpac.pkg \
+            "https://download.tsi.telecom-paristech.fr/gpac/new_builds/gpac_latest_head_macos.pkg"
+          # .pkg files contain a Payload which is a cpio archive
+          mkdir -p pkg_extracted
+          # Use 7z to extract the .pkg, then the Payload
+          sudo apt-get update && sudo apt-get install -y p7zip-full cpio
+          7z x gpac.pkg -opkg_contents || true
+          # Find and extract the Payload (may be nested inside PackageInfo dirs)
+          PAYLOAD=$(find pkg_contents -name "Payload" | head -1)
+          if [ -n "$PAYLOAD" ]; then
+            cd pkg_extracted && cpio -idm < "../$PAYLOAD" 2>/dev/null || cat "../$PAYLOAD" | gunzip | cpio -idm 2>/dev/null || true && cd ..
           fi
-          chmod +x mp4box-macos-x86_64/MP4Box
+          MP4BOX=$(find pkg_extracted -name "MP4Box" -type f | head -1)
+          if [ -z "$MP4BOX" ]; then
+            echo "ERROR: MP4Box not found in .pkg"
+            exit 1
+          fi
+          mkdir -p mp4box-macos-x86_64
+          cp "$MP4BOX" mp4box-macos-x86_64/
+          # Also copy libs if present alongside
+          LIB_DIR=$(dirname "$MP4BOX")/../lib
+          if [ -d "$LIB_DIR" ]; then
+            cp -R "$LIB_DIR" mp4box-macos-x86_64/
+          fi
           tar czf mp4box-macos-x86_64.tar.gz mp4box-macos-x86_64/
 
       - name: Upload to release
@@ -231,15 +245,16 @@ jobs:
         run: gh release upload "$RELEASE_TAG" ffmpeg-macos-x86_64.tar.gz --clobber --repo "$GITHUB_REPOSITORY"
 
   # ─── mp4decrypt (Bento4) ─────────────────────────────────────────────
+  # Bento4 SDK hosted at bok.net (author's site), not GitHub Releases.
+  # Version 1.6.0-641 is the latest stable release.
   mp4decrypt-linux-x86_64:
     if: ${{ github.event.inputs.tool == 'all' || github.event.inputs.tool == 'mp4decrypt' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     steps:
       - name: Download Bento4 Linux x86_64
         run: |
-          RELEASE=$(curl -s https://api.github.com/repos/nicoboss/bento4-binaries/releases/latest)
-          URL=$(echo "$RELEASE" | grep -oP '"browser_download_url": "\K[^"]*x86_64-unknown-linux[^"]*')
-          curl -L -o bento4.zip "$URL"
+          curl -L -o bento4.zip \
+            "https://www.bok.net/Bento4/binaries/Bento4-SDK-1-6-0-641.x86_64-unknown-linux.zip"
           unzip bento4.zip -d bento4/
           mkdir -p mp4decrypt-linux-x86_64
           find bento4/ -name "mp4decrypt" -type f -exec cp {} mp4decrypt-linux-x86_64/ \;
@@ -257,9 +272,8 @@ jobs:
     steps:
       - name: Download Bento4 Windows x86_64
         run: |
-          RELEASE=$(curl -s https://api.github.com/repos/nicoboss/bento4-binaries/releases/latest)
-          URL=$(echo "$RELEASE" | grep -oP '"browser_download_url": "\K[^"]*x86_64-microsoft-win32[^"]*')
-          curl -L -o bento4.zip "$URL"
+          curl -L -o bento4.zip \
+            "https://www.bok.net/Bento4/binaries/Bento4-SDK-1-6-0-641.x86_64-microsoft-win32.zip"
           unzip bento4.zip -d bento4/
           mkdir -p mp4decrypt-windows-x86_64
           find bento4/ -name "mp4decrypt.exe" -type f -exec cp {} mp4decrypt-windows-x86_64/ \;
@@ -276,9 +290,8 @@ jobs:
     steps:
       - name: Download Bento4 macOS universal
         run: |
-          RELEASE=$(curl -s https://api.github.com/repos/nicoboss/bento4-binaries/releases/latest)
-          URL=$(echo "$RELEASE" | grep -oP '"browser_download_url": "\K[^"]*universal-apple-macosx[^"]*')
-          curl -L -o bento4.zip "$URL"
+          curl -L -o bento4.zip \
+            "https://www.bok.net/Bento4/binaries/Bento4-SDK-1-6-0-641.universal-apple-macosx.zip"
           unzip bento4.zip -d bento4/
           mkdir -p mp4decrypt-macos-aarch64
           find bento4/ -name "mp4decrypt" -type f -exec cp {} mp4decrypt-macos-aarch64/ \;
